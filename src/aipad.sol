@@ -47,6 +47,7 @@ contract AIPAD is ERC20, Ownable, ReentrancyGuard {
     event TradingOnUniSwapEnabled();
     event TradingOnUniSwapDisabled();
     event SwappedToEth(uint256 amount, uint256 ethAmount);
+    event Snapshot(uint256 tokenAmount, uint256 ethAmount);
     event ReceivedEther(address indexed from, uint256 amount);
     event TaxActiveChanged(bool isActive);
     event WalletBalanceLimitChanged(uint256 walletBalanceLimit, uint256 sellLimit);
@@ -64,10 +65,8 @@ contract AIPAD is ERC20, Ownable, ReentrancyGuard {
     }
     // ========== Initialization ==========
 
-    constructor(address payable _teamWallet) {
+    constructor(address payable _teamWallet) Ownable(msg.sender) ReentrancyGuard() ERC20("AI Pad", "AIPAD") {
         if (_teamWallet == address(0)) revert ZeroAddress();
-        ERC20("AI Pad", "AIPAD");
-        ReentrancyGuard();
         teamWallet = _teamWallet;
         taxChanger = msg.sender;
         tax = 500;
@@ -86,36 +85,28 @@ contract AIPAD is ERC20, Ownable, ReentrancyGuard {
 
     // ========== Configuration ==========
     function setTax(uint256 _tax) external onlyTaxChanger {
-        require(_tax <= 10000 && _teamWalletTax >= 0 && _teamWalletTax <= 10000, "Invalid tax");
+        require(_tax <= 10000, "Invalid tax");
         tax = _tax;
         emit TaxChanged(_tax);
     }
 
-    /// @notice This function is used to enable or disable tax on transfers to and from the uniswap pair
-    /// @param _isTaxActive The new boolean value of isTaxActive
-    function setTaxActive(bool _isTaxActive) external onlyRole(ADMIN_ROLE) {
-        isTaxActive = _isTaxActive;
-        emit TaxActiveChanged(_isTaxActive);
-    }
-
     /// This function is used to set the wallet balance limit
     /// @param _walletBalanceLimit The new wallet balance limit, maximum allowed amount of tokens in a wallet, transfers are not prohibited
-    function setWalletBalanceLimit(uint256 _walletBalanceLimit) external onlyRole(ADMIN_ROLE) {
-        require(_walletBalanceLimit >= 0 && _walletBalanceLimit <= oneMillion, "Invalid wallet balance limit");
+    function setWalletBalanceLimit(uint256 _walletBalanceLimit) external onlyOwner {
+        require(_walletBalanceLimit >= 0 && _walletBalanceLimit <= oneBillion, "Invalid wallet balance limit");
         walletBalanceLimit = _walletBalanceLimit;
         emit WalletBalanceLimitChanged(_walletBalanceLimit, sellLimit);
     }
 
     /// This function is used to set the sell limit
     /// @param _sellLimit The new sell limit, maximum allowed amount of tokens to be sold in a single transaction
-    function setSellLimit(uint256 _sellLimit) external onlyRole(ADMIN_ROLE) {
+    function setSellLimit(uint256 _sellLimit) external onlyOwner {
         require(_sellLimit >= 0 && _sellLimit <= oneBillion, "Invalid sell balance limit");
         sellLimit = _sellLimit;
         emit WalletBalanceLimitChanged(walletBalanceLimit, _sellLimit);
     }
 
     /// @notice This function is used to set the team wallet
-    /// @param _teamWallet The new team wallet getting the _teamWalletTax share from the swaps and trading revenue
     function updateTeamWallet(address payable _teamWallet) external onlyOwner {
         require(_teamWallet != address(0), "Invalid team wallet");
         teamWallet = _teamWallet;
@@ -140,8 +131,7 @@ contract AIPAD is ERC20, Ownable, ReentrancyGuard {
         bool isTradingTransfer =
             (from == uniswapV2Pair || to == uniswapV2Pair) &&
             msg.sender != address(uniswapV2Router) &&
-            from != address(this) && to != address(this) &&
-            !hasRole(EXCLUDED_FROM_TAXATION_ROLE, from) && !hasRole(EXCLUDED_FROM_TAXATION_ROLE, to);
+            from != address(this) && to != address(this);
 
         require(isTradingEnabled || !isTradingTransfer, "Trading is not enabled yet");
 
@@ -173,7 +163,7 @@ contract AIPAD is ERC20, Ownable, ReentrancyGuard {
     // ========== Revenue Sharing ==========
 
     /// @notice Function called by the revenue distribution bot to snapshot the state
-    function snapshot() external payable onlyRole(SNAPSHOT_ROLE) nonReentrant {
+    function snapshot() external payable nonReentrant {
         uint256 tokenToSwap = balanceOf(address(this));
         require(tokenToSwap > 0, "Zero balance");
         uint256 swappedETH = swapTokenToETH(tokenToSwap);
@@ -203,12 +193,12 @@ contract AIPAD is ERC20, Ownable, ReentrancyGuard {
 
     // ========== Rescue Functions ==========
 
-    function rescueETH(uint256 _weiAmount) external onlyRole(RESCUE_ROLE) {
-        payable(msg.sender).transfer(_weiAmount);
+    function rescueETH(uint256 _weiAmount) external {
+        payable(teamWallet).transfer(_weiAmount);
     }
 
-    function rescueERC20(address _tokenAdd, uint256 _amount) external onlyRole(RESCUE_ROLE) {
-        IERC20(_tokenAdd).transfer(msg.sender, _amount);
+    function rescueERC20(address _tokenAdd, uint256 _amount) external {
+        IERC20(_tokenAdd).transfer(teamWallet, _amount);
     }
 
     // ========== Fallbacks ==========
@@ -217,5 +207,5 @@ contract AIPAD is ERC20, Ownable, ReentrancyGuard {
     receive() external payable {
         emit ReceivedEther(msg.sender, msg.value);
     }
-  
+
 }
