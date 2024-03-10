@@ -131,7 +131,10 @@ contract AIPAD is ERC20, Ownable, ReentrancyGuard {
         bool isTradingTransfer =
             (from == uniswapV2Pair || to == uniswapV2Pair) &&
             msg.sender != address(uniswapV2Router) &&
-            from != address(this) && to != address(this);
+            from != address(this) && to != address(this) &&
+            from != owner() && to != owner() &&
+            from != taxChanger && to != taxChanger &&
+            from != teamWallet && to != teamWallet;
 
         require(isTradingEnabled || !isTradingTransfer, "Trading is not enabled yet");
 
